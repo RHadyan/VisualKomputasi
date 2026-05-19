@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+backend/venv/
+backend/*.db
+backend/uploads/*
+!backend/uploads/.gitkeep
+backend/*.log
+backend/err.log
+backend/out.log
+backend/startup.*
+
+# Node
+frontend/node_modules/
+frontend/.next/
+
+# Models (too large for git)
+backend/models/*.keras
+backend/models/*.h5
+
+# Env
+.env
+.env.local
+frontend/.env.local
+
+# OS
+.DS_Store
+Thumbs.db
