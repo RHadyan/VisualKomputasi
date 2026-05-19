@@ -128,6 +128,8 @@ async def predict_receipt(file: UploadFile = File(...)):
         "heatmap": heatmap_base64,
         "image_url": f"/uploads/{unique_filename}",
         "mode": result.get("mode", "unknown"),
+        "zona_stats": result.get("zona_stats"),
+        "explanation": result.get("explanation"),
     }
 
 
