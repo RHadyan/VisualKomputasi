@@ -37,20 +37,29 @@ def _build_model():
 
 def load_model():
     global _model, _use_dummy
+    import tensorflow as tf
 
     model_path = _find_model_file()
 
     if model_path:
         try:
-            _model = _build_model()
-            _model.load_weights(model_path)
+            _model = tf.keras.models.load_model(model_path)
             _model(np.zeros((1, 224, 224, 3), dtype=np.float32))
             _use_dummy = False
             print(f"[MODEL] Loaded real model from {model_path}")
         except Exception as e:
-            print(f"[MODEL] Failed to load model: {e}")
-            print("[MODEL] Falling back to dummy prediction")
-            _use_dummy = True
+            print(f"[MODEL] Failed to load model with load_model(): {e}")
+            print("[MODEL] Trying build + load_weights fallback...")
+            try:
+                _model = _build_model()
+                _model.load_weights(model_path)
+                _model(np.zeros((1, 224, 224, 3), dtype=np.float32))
+                _use_dummy = False
+                print(f"[MODEL] Loaded via build+load_weights from {model_path}")
+            except Exception as e2:
+                print(f"[MODEL] Fallback also failed: {e2}")
+                print("[MODEL] Using dummy prediction mode")
+                _use_dummy = True
     else:
         print(f"[MODEL] No model file (*.keras or *.h5) found in {MODELS_DIR}")
         print("[MODEL] Using dummy prediction mode")
@@ -59,18 +68,12 @@ def load_model():
 
 def preprocess_image(image_bytes: bytes) -> np.ndarray:
     """
-    Preprocess image for model input — SAME as Colab preprocess_with_padding:
-    1. Resize with aspect ratio preserved (thumbnail + LANCZOS)
-    2. Pad with white to 224x224
-    3. Apply EfficientNet preprocess_input
+    Preprocess image for model input — matches Colab flow_from_directory behavior:
+    1. Resize (stretch) to 224x224 (same as target_size in flow_from_directory)
+    2. Apply EfficientNet preprocess_input
     """
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    img.thumbnail((224, 224), Image.LANCZOS)
-
-    delta_w = 224 - img.size[0]
-    delta_h = 224 - img.size[1]
-    padding = (delta_w // 2, delta_h // 2, delta_w - (delta_w // 2), delta_h - (delta_h // 2))
-    img = ImageOps.expand(img, padding, fill=(255, 255, 255))
+    img = img.resize((224, 224), Image.LANCZOS)
 
     img_array = np.array(img, dtype=np.float32)
 

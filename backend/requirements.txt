@@ -7,3 +7,4 @@ aiosqlite==0.19.0
 tensorflow==2.18.1
 easyocr==1.7.1
 opencv-python-headless==4.8.1.78
+lime==0.2.0.1
