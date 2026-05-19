@@ -105,24 +105,23 @@ export default function AboutPage() {
             <h4 className="font-semibold text-blue-800 mb-2">Alur Keputusan:</h4>
             <ol className="list-decimal list-inside space-y-2 text-sm text-blue-900">
               <li>
-                <strong>CNN confidence &gt; 0.8</strong> → Langsung prediksi{" "}
-                <span className="text-green-700 font-bold">REAL</span>
+                <strong>Visual score &gt; 0.55</strong> → Langsung prediksi{" "}
+                <span className="text-green-700 font-bold">REAL</span> (CNN yakin)
               </li>
               <li>
-                <strong>CNN confidence &lt; 0.2</strong> → Langsung prediksi{" "}
-                <span className="text-red-700 font-bold">FAKE</span>
+                <strong>Visual score &lt; 0.45</strong> → Langsung prediksi{" "}
+                <span className="text-red-700 font-bold">FAKE</span> (CNN yakin)
               </li>
               <li>
-                <strong>CNN uncertain (0.2 - 0.8)</strong> → Gunakan OCR untuk
-                validasi teks
+                <strong>Visual score 0.45 - 0.55</strong> → CNN tidak yakin, panggil OCR untuk validasi teks
               </li>
             </ol>
             <div className="mt-3 p-3 bg-white rounded border border-blue-100">
               <p className="text-sm font-mono text-gray-700">
-                final_score = 0.7 * visual_score + 0.3 * text_score
+                hybrid_score = 0.7 * visual_score + 0.3 * text_score
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                Jika final_score &gt; 0.5 → REAL, selainnya → FAKE
+                Jika hybrid_score &gt; 0.5 → REAL, selainnya → FAKE
               </p>
             </div>
           </div>
@@ -132,20 +131,32 @@ export default function AboutPage() {
         <Section title="Validasi Teks (OCR)">
           <p className="text-gray-600 mb-4">
             EasyOCR digunakan untuk membaca teks dari gambar struk dan memvalidasi
-            kontennya.
+            kontennya. OCR hanya dipanggil jika CNN tidak yakin (visual score 0.45 - 0.55).
           </p>
           <div className="space-y-2">
             <CheckItem
-              text='Cek keberadaan kata "TOTAL" (-0.3 jika tidak ditemukan)'
+              text='Cek keberadaan kata kunci total: TOTAL, JUMLAH, SUBTOTAL, GRAND TOTAL, AMOUNT (-0.25 jika tidak ditemukan)'
               isPositive={false}
             />
             <CheckItem
-              text="Cek minimal 3 angka ditemukan (-0.3 jika kurang)"
+              text="Cek minimal 3 angka ditemukan (-0.20 jika kurang)"
+              isPositive={false}
+            />
+            <CheckItem
+              text="Cek format harga (12.000 atau 12,500) (-0.20 jika tidak ditemukan)"
+              isPositive={false}
+            />
+            <CheckItem
+              text="Cek format tanggal DD/MM/YYYY atau DD-MM-YYYY (-0.20 jika tidak ditemukan)"
+              isPositive={false}
+            />
+            <CheckItem
+              text="Cek nama toko / huruf kapital beruntun (-0.15 jika tidak ditemukan)"
               isPositive={false}
             />
           </div>
           <p className="text-sm text-gray-500 mt-3">
-            Skor awal: 1.0, dikurangi berdasarkan pengecekan di atas.
+            Skor awal: 1.0, dikurangi berdasarkan pengecekan di atas. Minimum: 0.0
           </p>
         </Section>
 
@@ -154,27 +165,36 @@ export default function AboutPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <InfoItem label="Optimizer" value="Adam (learning rate: 1e-4)" />
             <InfoItem label="Loss Function" value="Binary Crossentropy" />
-            <InfoItem label="Epochs" value="10 (EarlyStopping, patience=3)" />
+            <InfoItem label="Epochs" value="100 (EarlyStopping)" />
             <InfoItem label="Dataset Split" value="70% train / 15% val / 15% test" />
+            <InfoItem label="Preprocessing" value="Thumbnail + White Padding (224x224) + EfficientNet preprocess_input" />
+            <InfoItem label="Model File" value="model_ku.keras" />
           </div>
         </Section>
 
-        {/* Grad-CAM */}
-        <Section title="Grad-CAM Visualization">
+        {/* LIME Visualization */}
+        <Section title="LIME Visualization">
           <p className="text-gray-600 mb-4">
-            Grad-CAM (Gradient-weighted Class Activation Mapping) digunakan untuk
+            LIME (Local Interpretable Model-agnostic Explanations) digunakan untuk
             memvisualisasikan area mana pada gambar struk yang paling berpengaruh
             terhadap keputusan model.
           </p>
           <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
             <ul className="space-y-2 text-sm text-gray-700">
               <li>
-                • Menggunakan layer <code className="bg-gray-200 px-1 rounded">top_conv</code> dari EfficientNetB0
+                • Membuat 300 perturbasi (variasi) dari gambar input
               </li>
-              <li>• Menghasilkan heatmap yang di-overlay pada gambar asli</li>
               <li>
-                • Area merah/kuning = fokus tinggi model, area gelap = kurang
-                diperhatikan
+                • Menganalisis superpixel mana yang paling berpengaruh terhadap prediksi
+              </li>
+              <li>
+                • <span className="text-green-600 font-medium">Hijau</span> = area yang mendukung prediksi model
+              </li>
+              <li>
+                • <span className="text-red-600 font-medium">Merah</span> = area yang melemahkan/kontradiksi prediksi
+              </li>
+              <li>
+                • Zona analisis: Header (1/3 atas), Isi Struk (1/3 tengah), Footer (1/3 bawah)
               </li>
             </ul>
           </div>

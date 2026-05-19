@@ -84,11 +84,13 @@ export default function ResultCard({ result }: ResultCardProps) {
             label="Text Score (OCR)"
             value={result.text_score}
             description="Skor validasi teks struk"
+            tooltip="Model CNN sudah yakin, OCR tidak dipanggil"
           />
           <ScoreItem
             label="Hybrid Score"
             value={result.hybrid_score}
             description="Skor gabungan (0.7*visual + 0.3*text)"
+            tooltip="OCR tidak aktif, hybrid score tidak dihitung"
           />
         </div>
 
@@ -175,18 +177,30 @@ function ScoreItem({
   label,
   value,
   description,
+  tooltip,
 }: {
   label: string;
   value: number | null;
   description: string;
+  tooltip?: string;
 }) {
   return (
-    <div className="bg-gray-50 rounded-lg p-3">
+    <div className="bg-gray-50 rounded-lg p-3 relative group">
       <p className="text-xs text-gray-500">{label}</p>
-      <p className="text-lg font-bold text-gray-800">
-        {value !== null ? `${(value * 100).toFixed(1)}%` : "N/A"}
-      </p>
+      <div className="flex items-center gap-1">
+        <p className="text-lg font-bold text-gray-800">
+          {value !== null ? `${(value * 100).toFixed(1)}%` : "N/A"}
+        </p>
+        {value === null && tooltip && (
+          <span className="cursor-help text-gray-400 text-sm" title={tooltip}>ⓘ</span>
+        )}
+      </div>
       <p className="text-xs text-gray-400 mt-1">{description}</p>
+      {value === null && tooltip && (
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-10 w-48 px-3 py-2 text-xs text-white bg-gray-800 rounded-lg shadow-lg">
+          {tooltip}
+        </div>
+      )}
     </div>
   );
 }
