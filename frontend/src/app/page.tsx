@@ -15,6 +15,15 @@ interface PredictionResult {
   heatmap: string | null;
   image_url: string;
   mode: string;
+  zona_stats: { header: number; isi: number; footer: number } | null;
+  explanation: {
+    alasan: string[];
+    saran: string;
+    zona_aktif: string[];
+    zona_scores: { header: number; isi: number; footer: number };
+    active_ratio: number;
+    confidence_level: string;
+  } | null;
 }
 
 export default function Home() {

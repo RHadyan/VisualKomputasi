@@ -11,6 +11,15 @@ interface PredictionResult {
   heatmap: string | null;
   image_url: string;
   mode: string;
+  zona_stats: { header: number; isi: number; footer: number } | null;
+  explanation: {
+    alasan: string[];
+    saran: string;
+    zona_aktif: string[];
+    zona_scores: { header: number; isi: number; footer: number };
+    active_ratio: number;
+    confidence_level: string;
+  } | null;
 }
 
 interface ResultCardProps {
@@ -97,20 +106,65 @@ export default function ResultCard({ result }: ResultCardProps) {
         </div>
       </div>
 
-      {/* Grad-CAM Heatmap */}
+      {/* LIME Heatmap */}
       {result.heatmap && (
         <div className="px-6 py-4 border-t border-gray-100">
           <h4 className="text-sm font-semibold text-gray-700 mb-3">
-            Grad-CAM Heatmap
+            LIME Heatmap
           </h4>
           <p className="text-xs text-gray-500 mb-2">
             Area yang menjadi fokus model dalam mengambil keputusan
           </p>
           <img
             src={`data:image/png;base64,${result.heatmap}`}
-            alt="Grad-CAM Heatmap"
+            alt="LIME Heatmap"
             className="w-full max-w-sm rounded-lg shadow-sm border border-gray-200"
           />
+        </div>
+      )}
+
+      {/* Penjelasan Hasil Analisis */}
+      {result.explanation && (
+        <div className="px-6 py-4 border-t border-gray-100">
+          <div className="bg-gray-50 rounded-lg p-4 font-mono text-sm text-gray-800 space-y-3">
+            <div>
+              <p className="font-semibold">Penjelasan Hasil Analisis:</p>
+              {result.explanation.alasan.map((a, i) => (
+                <p key={i} className="ml-2">{i + 1}. {a}</p>
+              ))}
+            </div>
+
+            <div>
+              <p>Kesimpulan: {result.explanation.saran}</p>
+            </div>
+
+            <div>
+              <p>Luas area berpengaruh: {(result.explanation.active_ratio * 100).toFixed(1)}% dari total gambar</p>
+            </div>
+
+            <div>
+              <p className="font-semibold">Tingkat pengaruh per bagian struk:</p>
+              {Object.entries(result.explanation.zona_scores)
+                .sort(([, a], [, b]) => b - a)
+                .map(([zona, skor]) => {
+                  const zonaLabel = zona === "header" ? "Header / Nama Toko" : zona === "isi" ? "Isi Struk (Item)" : "Footer / Total";
+                  const level = skor > 0.15 ? "Tinggi" : skor > 0.05 ? "Sedang" : "Rendah";
+                  const barWidth = Math.min(skor * 300, 100);
+                  return (
+                    <div key={zona} className="flex items-center gap-2 ml-2">
+                      <span className="w-40 truncate">{zonaLabel}</span>
+                      <span className="w-16 text-xs">[{level}]</span>
+                      <div className="flex-1 bg-gray-200 rounded h-3 max-w-[120px]">
+                        <div
+                          className={`h-3 rounded ${skor > 0.15 ? "bg-red-500" : skor > 0.05 ? "bg-yellow-500" : "bg-green-500"}`}
+                          style={{ width: `${barWidth}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
         </div>
       )}
     </div>
