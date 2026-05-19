@@ -6,12 +6,15 @@ from PIL import Image, ImageOps
 import io
 
 MODELS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models")
-_SUPPORTED_EXTS = (".keras", ".h5")
+_SUPPORTED_EXTS = (".h5", ".keras")
 _model = None
 _use_dummy = True
 
 
 def _find_model_file() -> str | None:
+    preferred = os.path.join(MODELS_DIR, "model_ku.keras")
+    if os.path.isfile(preferred):
+        return preferred
     for ext in _SUPPORTED_EXTS:
         matches = sorted(glob.glob(os.path.join(MODELS_DIR, f"*{ext}")))
         if matches:
@@ -69,8 +72,7 @@ def load_model():
 
 def crop_struk(image_bytes: bytes) -> Image.Image:
     """
-    Auto-detect dan crop area struk dari background menggunakan kontur + filter warna putih.
-    Persis seperti Colab cell 42.
+    Auto-detect dan crop area struk dari background menggunakan kontur + filter warna terang.
     """
     img_array = np.frombuffer(image_bytes, dtype=np.uint8)
     img_bgr = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
@@ -80,62 +82,52 @@ def crop_struk(image_bytes: bytes) -> Image.Image:
     img_h, img_w = img_bgr.shape[:2]
     img_area = img_h * img_w
 
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    edges = cv2.Canny(blurred, 30, 100)
-    kernel = np.ones((5, 5), np.uint8)
-    edges = cv2.dilate(edges, kernel, iterations=2)
-    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
 
-    r, g, b = img_rgb[:, :, 0], img_rgb[:, :, 1], img_rgb[:, :, 2]
-    mask_putih = (
-        (r.astype(int) > 170) &
-        (g.astype(int) > 170) &
-        (b.astype(int) > 170) &
-        (np.abs(r.astype(int) - g.astype(int)) < 40) &
-        (np.abs(g.astype(int) - b.astype(int)) < 40) &
-        (np.abs(r.astype(int) - b.astype(int)) < 40)
-    ).astype(np.uint8) * 255
+    kernel = np.ones((15, 15), np.uint8)
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=3)
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=1)
+
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     kandidat = []
     for cnt in contours:
         area = cv2.contourArea(cnt)
-        if area < 0.10 * img_area:
+        if area < 0.10 * img_area or area > 0.92 * img_area:
             continue
         x, y, w, h = cv2.boundingRect(cnt)
-        if not (0.2 <= w / (h + 1e-8) <= 2.0):
-            continue
-        mask_cnt = np.zeros((img_h, img_w), dtype=np.uint8)
-        cv2.drawContours(mask_cnt, [cnt], -1, 255, thickness=cv2.FILLED)
-        piksel_dalam = np.sum(mask_cnt == 255)
-        piksel_putih = np.sum((mask_putih == 255) & (mask_cnt == 255))
-        rasio_putih = piksel_putih / (piksel_dalam + 1e-8)
-        if rasio_putih < 0.40:
-            continue
-        kandidat.append((area, x, y, w, h, rasio_putih))
+        if 0.2 <= w / (h + 1e-8) <= 2.5:
+            kandidat.append((area, x, y, w, h, cnt))
 
     if not kandidat:
         return Image.fromarray(img_rgb)
 
-    best = max(kandidat, key=lambda c: c[5])
-    _, x, y, w, h, _ = best
+    best = max(kandidat, key=lambda c: c[0])
+    _, x, y, w, h, cnt = best
 
-    pad = 10
+    mask = np.zeros((img_h, img_w), dtype=np.uint8)
+    cv2.drawContours(mask, [cnt], -1, 255, thickness=cv2.FILLED)
+
+    result = np.full((img_h, img_w, 3), 255, dtype=np.uint8)
+    result[mask == 255] = img_rgb[mask == 255]
+
+    pad = 5
     x1 = max(x - pad, 0)
     y1 = max(y - pad, 0)
     x2 = min(x + w + pad, img_w)
     y2 = min(y + h + pad, img_h)
 
-    return Image.fromarray(img_rgb[y1:y2, x1:x2])
+    return Image.fromarray(result[y1:y2, x1:x2])
 
 
 def preprocess_image(image_bytes: bytes) -> np.ndarray:
-    """
-    Preprocess image for model input — matches Colab flow_from_directory behavior:
-    1. Resize (stretch) to 224x224 (same as target_size in flow_from_directory)
-    2. Apply EfficientNet preprocess_input
-    """
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    img = img.resize((224, 224), Image.LANCZOS)
+    img.thumbnail((224, 224), Image.LANCZOS)
+
+    delta_w = 224 - img.size[0]
+    delta_h = 224 - img.size[1]
+    padding = (delta_w // 2, delta_h // 2, delta_w - (delta_w // 2), delta_h - (delta_h // 2))
+    img = ImageOps.expand(img, padding, fill=(255, 255, 255))
 
     img_array = np.array(img, dtype=np.float32)
 
@@ -343,12 +335,12 @@ def predict_dummy(image_bytes: bytes) -> dict:
 
 
 def predict_real(image_bytes: bytes) -> dict:
-    img_array = preprocess_image_with_crop(image_bytes)
+    img_array = preprocess_image(image_bytes)
     prediction = _model.predict(img_array, verbose=0)
     raw_score = float(prediction[0][0])
 
-    # Swap: score tinggi = FAKE, score rendah = REAL
-    visual_score = 1 - raw_score
+    # raw_score tinggi = REAL, rendah = FAKE
+    visual_score = raw_score
 
     if visual_score > 0.55:
         label = "REAL"
@@ -375,17 +367,12 @@ def predict_real(image_bytes: bytes) -> dict:
             label = "REAL" if hybrid_score > 0.5 else "FAKE"
             confidence = hybrid_score if label == "REAL" else 1 - hybrid_score
 
-    zona_stats = compute_zona_stats(image_bytes)
-    explanation = generate_explanation(label, zona_stats)
-
     return {
         "label": label,
         "confidence": round(float(confidence), 4),
         "visual_score": round(float(visual_score), 4),
         "text_score": round(float(text_score), 4) if text_score is not None else None,
         "hybrid_score": round(float(hybrid_score), 4) if hybrid_score is not None else None,
-        "zona_stats": zona_stats,
-        "explanation": explanation,
         "mode": "real",
     }
 

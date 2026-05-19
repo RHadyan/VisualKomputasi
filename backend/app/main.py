@@ -98,12 +98,17 @@ async def predict_receipt(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
-    # Generate Grad-CAM heatmap
+    # Generate LIME explanation
     try:
-        heatmap_base64 = generate_gradcam(image_bytes)
+        lime_result = generate_gradcam(image_bytes, result["label"])
+        heatmap_base64 = lime_result["heatmap"]
+        zona_stats = lime_result["zona_stats"]
+        explanation = lime_result["explanation"]
     except Exception as e:
-        print(f"[GRADCAM] Failed: {e}")
+        print(f"[LIME] Failed: {e}")
         heatmap_base64 = None
+        zona_stats = result.get("zona_stats")
+        explanation = result.get("explanation")
 
     # Save to database
     prediction_id = await save_prediction(
@@ -128,8 +133,8 @@ async def predict_receipt(file: UploadFile = File(...)):
         "heatmap": heatmap_base64,
         "image_url": f"/uploads/{unique_filename}",
         "mode": result.get("mode", "unknown"),
-        "zona_stats": result.get("zona_stats"),
-        "explanation": result.get("explanation"),
+        "zona_stats": zona_stats,
+        "explanation": explanation,
     }
 
 
