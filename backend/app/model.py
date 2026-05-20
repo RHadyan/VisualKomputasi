@@ -70,54 +70,97 @@ def load_model():
         _use_dummy = True
 
 
+def _order_points(pts):
+    rect = np.zeros((4, 2), dtype="float32")
+    s = pts.sum(axis=1)
+    rect[0] = pts[np.argmin(s)]
+    rect[2] = pts[np.argmax(s)]
+    diff = np.diff(pts, axis=1)
+    rect[1] = pts[np.argmin(diff)]
+    rect[3] = pts[np.argmax(diff)]
+    return rect
+
+
+def _four_point_transform(image, pts):
+    rect = _order_points(pts)
+    tl, tr, br, bl = rect
+
+    width_a = np.linalg.norm(br - bl)
+    width_b = np.linalg.norm(tr - tl)
+    max_width = int(max(width_a, width_b))
+
+    height_a = np.linalg.norm(tr - br)
+    height_b = np.linalg.norm(tl - bl)
+    max_height = int(max(height_a, height_b))
+
+    dst = np.array([
+        [0, 0],
+        [max_width - 1, 0],
+        [max_width - 1, max_height - 1],
+        [0, max_height - 1]
+    ], dtype="float32")
+
+    matrix = cv2.getPerspectiveTransform(rect, dst)
+    warped = cv2.warpPerspective(image, matrix, (max_width, max_height))
+    return warped
+
+
 def crop_struk(image_bytes: bytes) -> Image.Image:
     """
     Auto-detect dan crop area struk dari background menggunakan kontur + filter warna terang.
     """
     img_array = np.frombuffer(image_bytes, dtype=np.uint8)
     img_bgr = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-    img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
 
-    img_h, img_w = img_bgr.shape[:2]
-    img_area = img_h * img_w
+    if img_bgr is None:
+        return Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
-    _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
+    original = img_bgr.copy()
+    ratio = img_bgr.shape[0] / 900.0
+    resized = cv2.resize(img_bgr, (int(img_bgr.shape[1] / ratio), 900))
 
-    kernel = np.ones((15, 15), np.uint8)
-    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=3)
-    thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=1)
+    gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(blur, 30, 100)
 
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    kernel = np.ones((7, 7), np.uint8)
+    edges = cv2.dilate(edges, kernel, iterations=2)
+    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=2)
 
-    kandidat = []
-    for cnt in contours:
-        area = cv2.contourArea(cnt)
-        if area < 0.10 * img_area or area > 0.92 * img_area:
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours = sorted(contours, key=cv2.contourArea, reverse=True)
+
+    resized_area = resized.shape[0] * resized.shape[1]
+
+    receipt_contour = None
+    for contour in contours[:10]:
+        area = cv2.contourArea(contour)
+        if area < 0.1 * resized_area:
             continue
-        x, y, w, h = cv2.boundingRect(cnt)
-        if 0.2 <= w / (h + 1e-8) <= 2.5:
-            kandidat.append((area, x, y, w, h, cnt))
+        if area > 0.95 * resized_area:
+            continue
+        peri = cv2.arcLength(contour, True)
+        approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
+        if len(approx) == 4:
+            receipt_contour = approx
+            break
+        approx = cv2.approxPolyDP(contour, 0.05 * peri, True)
+        if len(approx) == 4:
+            receipt_contour = approx
+            break
+        x, y, w, h = cv2.boundingRect(contour)
+        receipt_contour = np.array([[x, y], [x + w, y], [x + w, y + h], [x, y + h]], dtype=np.int32).reshape(4, 1, 2)
+        break
 
-    if not kandidat:
+    if receipt_contour is None:
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
         return Image.fromarray(img_rgb)
 
-    best = max(kandidat, key=lambda c: c[0])
-    _, x, y, w, h, cnt = best
+    pts = receipt_contour.reshape(4, 2).astype(np.float32) * ratio
+    warped = _four_point_transform(original, pts)
+    warped_rgb = cv2.cvtColor(warped, cv2.COLOR_BGR2RGB)
 
-    mask = np.zeros((img_h, img_w), dtype=np.uint8)
-    cv2.drawContours(mask, [cnt], -1, 255, thickness=cv2.FILLED)
-
-    result = np.full((img_h, img_w, 3), 255, dtype=np.uint8)
-    result[mask == 255] = img_rgb[mask == 255]
-
-    pad = 5
-    x1 = max(x - pad, 0)
-    y1 = max(y - pad, 0)
-    x2 = min(x + w + pad, img_w)
-    y2 = min(y + h + pad, img_h)
-
-    return Image.fromarray(result[y1:y2, x1:x2])
+    return Image.fromarray(warped_rgb)
 
 
 def preprocess_image(image_bytes: bytes) -> np.ndarray:
@@ -308,12 +351,12 @@ def predict_dummy(image_bytes: bytes) -> dict:
 
     visual_score = min(max(visual_score, 0.0), 1.0)
 
-    if visual_score > 0.55:
+    if visual_score > 0.65:
         label = "REAL"
         confidence = visual_score
         text_score = None
         hybrid_score = None
-    elif visual_score < 0.45:
+    elif visual_score < 0.35:
         label = "FAKE"
         confidence = 1 - visual_score
         text_score = None
@@ -342,12 +385,12 @@ def predict_real(image_bytes: bytes) -> dict:
     # raw_score tinggi = REAL, rendah = FAKE
     visual_score = raw_score
 
-    if visual_score > 0.55:
+    if visual_score > 0.65:
         label = "REAL"
         confidence = visual_score
         text_score = None
         hybrid_score = None
-    elif visual_score < 0.45:
+    elif visual_score < 0.35:
         label = "FAKE"
         confidence = 1 - visual_score
         text_score = None

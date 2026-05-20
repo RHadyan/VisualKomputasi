@@ -35,6 +35,8 @@ export default function UploadForm({ onResult }: UploadFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [loadingStep, setLoadingStep] = useState("");
 
   const handleFile = useCallback(
     async (file: File) => {
@@ -65,6 +67,28 @@ export default function UploadForm({ onResult }: UploadFormProps) {
 
       // Upload to API
       setIsLoading(true);
+      setProgress(0);
+      setLoadingStep("Mengunggah gambar...");
+
+      const progressInterval = setInterval(() => {
+        setProgress((prev) => {
+          if (prev < 20) {
+            setLoadingStep("Mengunggah gambar...");
+            return prev + 4;
+          } else if (prev < 40) {
+            setLoadingStep("Mendeteksi area struk...");
+            return prev + 2;
+          } else if (prev < 60) {
+            setLoadingStep("Menjalankan model CNN...");
+            return prev + 2;
+          } else if (prev < 90) {
+            setLoadingStep("Menganalisis LIME (perturbasi 300x)...");
+            return prev + 1;
+          }
+          return prev;
+        });
+      }, 200);
+
       try {
         const formData = new FormData();
         formData.append("file", file);
@@ -74,6 +98,10 @@ export default function UploadForm({ onResult }: UploadFormProps) {
           body: formData,
         });
 
+        clearInterval(progressInterval);
+        setProgress(100);
+        setLoadingStep("Selesai!");
+
         if (!response.ok) {
           const data = await response.json();
           throw new Error(data.detail || "Prediction failed");
@@ -82,11 +110,14 @@ export default function UploadForm({ onResult }: UploadFormProps) {
         const result: PredictionResult = await response.json();
         onResult(result);
       } catch (err) {
+        clearInterval(progressInterval);
         setError(
           err instanceof Error ? err.message : "Terjadi kesalahan saat memproses gambar"
         );
       } finally {
         setIsLoading(false);
+        setProgress(0);
+        setLoadingStep("");
       }
     },
     [onResult]
@@ -140,9 +171,16 @@ export default function UploadForm({ onResult }: UploadFormProps) {
         />
 
         {isLoading ? (
-          <div className="flex flex-col items-center gap-3">
+          <div className="flex flex-col items-center gap-3 w-full px-4">
             <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-gray-600 font-medium">Menganalisis struk...</p>
+            <p className="text-gray-600 font-medium">{loadingStep}</p>
+            <div className="w-full max-w-xs bg-gray-200 rounded-full h-3">
+              <div
+                className="bg-blue-500 h-3 rounded-full transition-all duration-300"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <p className="text-xs text-gray-400">{progress}%</p>
           </div>
         ) : preview ? (
           <div className="flex flex-col items-center gap-3">
