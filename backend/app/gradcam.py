@@ -162,6 +162,133 @@ def generate_lime_real(image_bytes: bytes, label: str) -> dict:
     }
 
 
+def generate_gradcam_real(image_bytes: bytes, label: str) -> dict:
+    import tensorflow as tf
+    from .model import _model
+
+    if _model is None:
+        return generate_lime_dummy(image_bytes)
+
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    img = img.resize((224, 224), Image.LANCZOS)
+    img_array = np.array(img, dtype=np.float32)
+
+    from tensorflow.keras.applications.efficientnet import preprocess_input
+    input_array = preprocess_input(np.expand_dims(img_array.copy(), axis=0))
+
+    base_model = _model.get_layer("efficientnetb0")
+    conv_output = base_model.get_layer("top_conv").output
+    grad_model = tf.keras.Model(
+        inputs=base_model.input,
+        outputs=[conv_output, base_model.output]
+    )
+
+    with tf.GradientTape() as tape:
+        last_conv_output, base_out = grad_model(input_array)
+        x = base_out
+        for layer in _model.layers[1:]:
+            x = layer(x, training=False)
+        class_channel = x[:, 0]
+
+    grads = tape.gradient(class_channel, last_conv_output)
+    pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
+
+    conv_out = last_conv_output[0]
+    heatmap = conv_out @ pooled_grads[..., tf.newaxis]
+    heatmap = tf.squeeze(heatmap)
+    heatmap = tf.maximum(heatmap, 0) / (tf.math.reduce_max(heatmap) + 1e-8)
+    heatmap = heatmap.numpy()
+
+    heatmap_resized = np.array(
+        Image.fromarray((heatmap * 255).astype(np.uint8)).resize((224, 224))
+    ) / 255.0
+
+    heatmap_colored = np.zeros((224, 224, 3), dtype=np.float32)
+    heatmap_colored[:, :, 0] = heatmap_resized
+    heatmap_colored[:, :, 1] = heatmap_resized * 0.5
+
+    alpha = 0.4
+    overlay = (1 - alpha) * (img_array / 255.0) + alpha * heatmap_colored
+    overlay = np.clip(overlay * 255, 0, 255).astype(np.uint8)
+
+    overlay_img = Image.fromarray(overlay)
+    buffer = io.BytesIO()
+    overlay_img.save(buffer, format="PNG")
+    buffer.seek(0)
+    heatmap_b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+
+    h = 224
+    header_zone = heatmap_resized[:h // 3, :]
+    isi_zone = heatmap_resized[h // 3:2 * h // 3, :]
+    footer_zone = heatmap_resized[2 * h // 3:, :]
+
+    skor_zona = {
+        "header": round(float(np.mean(header_zone)), 4),
+        "isi": round(float(np.mean(isi_zone)), 4),
+        "footer": round(float(np.mean(footer_zone)), 4),
+    }
+
+    active_ratio = float(np.sum(heatmap_resized > 0.3) / heatmap_resized.size)
+
+    zona_aktif = []
+    if skor_zona["header"] > 0.05:
+        zona_aktif.append("Header / Nama Toko")
+    if skor_zona["isi"] > 0.05:
+        zona_aktif.append("Isi Struk (Item)")
+    if skor_zona["footer"] > 0.05:
+        zona_aktif.append("Footer / Total")
+
+    if not zona_aktif:
+        max_zona = max(skor_zona, key=skor_zona.get)
+        zona_map = {"header": "Header / Nama Toko", "isi": "Isi Struk (Item)", "footer": "Footer / Total"}
+        zona_aktif = [zona_map.get(max_zona, "Isi Struk (Item)")]
+
+    zona_desc = ", ".join(zona_aktif)
+
+    alasan = []
+    if label == "FAKE":
+        alasan.append(f"Model menemukan kejanggalan visual di: {zona_desc}.")
+        if skor_zona["isi"] > 0.1:
+            alasan.append("Bagian item/harga terlihat tidak konsisten — kemungkinan ada yang diedit.")
+        if skor_zona["header"] > 0.1:
+            alasan.append("Nama toko atau header struk terlihat mencurigakan.")
+        if skor_zona["footer"] > 0.1:
+            alasan.append("Bagian total/kembali menunjukkan angka yang tidak wajar.")
+        saran = "Disarankan periksa keaslian struk secara manual."
+    else:
+        alasan.append(f"Model menemukan ciri khas struk asli di: {zona_desc}.")
+        if skor_zona["isi"] > 0.1:
+            alasan.append("Bagian item dan harga konsisten dengan format struk asli.")
+        if skor_zona["header"] > 0.1:
+            alasan.append("Nama toko dan header memiliki format yang sesuai standar.")
+        if skor_zona["footer"] > 0.1:
+            alasan.append("Bagian total dan kembalian memiliki angka yang wajar dan konsisten.")
+        saran = "Struk terlihat asli berdasarkan analisis visual model."
+
+    confidence_val = max(skor_zona.values())
+    if confidence_val >= 0.15:
+        conf_label = "Sangat Yakin"
+    elif confidence_val >= 0.05:
+        conf_label = "Cukup Yakin"
+    else:
+        conf_label = "Kurang Yakin"
+
+    explanation_data = {
+        "alasan": alasan,
+        "saran": saran,
+        "zona_aktif": zona_aktif,
+        "zona_scores": skor_zona,
+        "active_ratio": round(active_ratio, 4),
+        "confidence_level": conf_label,
+    }
+
+    return {
+        "heatmap": heatmap_b64,
+        "zona_stats": skor_zona,
+        "explanation": explanation_data,
+    }
+
+
 def generate_gradcam(image_bytes: bytes, label: str = "REAL") -> dict:
     from .model import _use_dummy
 

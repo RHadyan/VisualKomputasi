@@ -164,7 +164,7 @@ def crop_struk(image_bytes: bytes) -> Image.Image:
 
 
 def preprocess_image(image_bytes: bytes) -> np.ndarray:
-    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    img = crop_struk(image_bytes)
     img.thumbnail((224, 224), Image.LANCZOS)
 
     delta_w = 224 - img.size[0]
@@ -204,7 +204,7 @@ def preprocess_image_with_crop(image_bytes: bytes) -> np.ndarray:
 
 def compute_zona_stats(image_bytes: bytes) -> dict:
     """
-    Hitung statistik zona struk (Header/Isi/Footer) berdasarkan Grad-CAM heatmap.
+    Hitung statistik zona struk (Header/Isi/Footer) berdasarkan LIME heatmap.
     Return dict dengan skor per zona.
     """
     if _use_dummy or _model is None:
@@ -351,12 +351,12 @@ def predict_dummy(image_bytes: bytes) -> dict:
 
     visual_score = min(max(visual_score, 0.0), 1.0)
 
-    if visual_score > 0.65:
+    if visual_score > 0.60:
         label = "REAL"
         confidence = visual_score
         text_score = None
         hybrid_score = None
-    elif visual_score < 0.35:
+    elif visual_score < 0.40:
         label = "FAKE"
         confidence = 1 - visual_score
         text_score = None
@@ -385,12 +385,12 @@ def predict_real(image_bytes: bytes) -> dict:
     # raw_score tinggi = REAL, rendah = FAKE
     visual_score = raw_score
 
-    if visual_score > 0.65:
+    if visual_score > 0.60:
         label = "REAL"
         confidence = visual_score
         text_score = None
         hybrid_score = None
-    elif visual_score < 0.35:
+    elif visual_score < 0.40:
         label = "FAKE"
         confidence = 1 - visual_score
         text_score = None

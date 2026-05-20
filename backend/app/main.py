@@ -66,7 +66,7 @@ async def predict_receipt(file: UploadFile = File(...)):
         - visual_score: CNN model score
         - text_score: OCR validation score (if applicable)
         - hybrid_score: combined score (if applicable)
-        - heatmap: base64-encoded Grad-CAM heatmap image
+        - heatmap: base64-encoded LIME heatmap image
         - mode: "real" or "dummy"
     """
     # Validate file extension
