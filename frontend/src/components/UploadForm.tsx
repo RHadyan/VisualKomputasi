@@ -22,6 +22,7 @@ interface PredictionResult {
     active_ratio: number;
     confidence_level: string;
   } | null;
+  cropped_image: string | null;
 }
 
 interface UploadFormProps {

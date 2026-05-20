@@ -4,6 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 import os
 import uuid
+import io
 import shutil
 from contextlib import asynccontextmanager
 
@@ -98,6 +99,19 @@ async def predict_receipt(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
+    # Generate cropped image
+    cropped_base64 = None
+    try:
+        from .model import crop_struk
+        import base64
+        cropped_img = crop_struk(image_bytes)
+        buffer = io.BytesIO()
+        cropped_img.save(buffer, format="PNG")
+        buffer.seek(0)
+        cropped_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+    except Exception as e:
+        print(f"[CROP] Failed: {e}")
+
     # Generate LIME explanation
     try:
         lime_result = generate_gradcam(image_bytes, result["label"])
@@ -135,6 +149,7 @@ async def predict_receipt(file: UploadFile = File(...)):
         "mode": result.get("mode", "unknown"),
         "zona_stats": zona_stats,
         "explanation": explanation,
+        "cropped_image": cropped_base64,
     }
 
 

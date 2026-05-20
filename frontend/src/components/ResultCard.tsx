@@ -20,6 +20,7 @@ interface PredictionResult {
     active_ratio: number;
     confidence_level: string;
   } | null;
+  cropped_image: string | null;
 }
 
 interface ResultCardProps {
@@ -107,6 +108,23 @@ export default function ResultCard({ result }: ResultCardProps) {
           </span>
         </div>
       </div>
+
+      {/* Cropped Image */}
+      {result.cropped_image && (
+        <div className="px-6 py-4 border-t border-gray-100">
+          <h4 className="text-sm font-semibold text-gray-700 mb-3">
+            Gambar Setelah Crop
+          </h4>
+          <p className="text-xs text-gray-500 mb-2">
+            Area struk yang terdeteksi dan diproses oleh model
+          </p>
+          <img
+            src={`data:image/png;base64,${result.cropped_image}`}
+            alt="Cropped Receipt"
+            className="w-full max-w-sm rounded-lg shadow-sm border border-gray-200"
+          />
+        </div>
+      )}
 
       {/* LIME Heatmap */}
       {result.heatmap && (

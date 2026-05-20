@@ -35,12 +35,12 @@ def generate_lime_dummy(image_bytes: bytes) -> dict:
 def generate_lime_real(image_bytes: bytes, label: str) -> dict:
     from lime import lime_image
     from tensorflow.keras.applications.efficientnet import preprocess_input
-    from .model import _model
+    from .model import _model, crop_struk
 
     if _model is None:
         return generate_lime_dummy(image_bytes)
 
-    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    img = crop_struk(image_bytes)
     img = img.resize((224, 224), Image.LANCZOS)
     img_display = np.array(img, dtype=np.float64)
 
