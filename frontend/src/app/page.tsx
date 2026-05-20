@@ -67,7 +67,7 @@ export default function Home() {
           />
           <InfoCard
             title="Hasil Instan"
-            description="Dapatkan hasil deteksi REAL/FAKE beserta confidence score dan Grad-CAM heatmap"
+            description="Dapatkan hasil deteksi REAL/FAKE beserta confidence score dan LIME heatmap"
           />
         </div>
       )}
